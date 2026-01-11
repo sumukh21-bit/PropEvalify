@@ -1,68 +1,86 @@
+import numpy as np
 import pandas as pd
-from prepoc import data
+from prepoc import*
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.ensemble import HistGradientBoostingRegressor
+
+from sklearn.preprocessing import TargetEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LinearRegression
+
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error, r2_score
 
-X = data.drop(columns=['Price','City','Province'])
+X = data.drop(columns=['Price'])
 y= data['Price']
 
 num_cols=[
     'Bedrooms',
     "Bathrooms",
     "Acreage",
-    'Square Footage'
+    'Square Footage',
+    'LUXURY_SCORE',
+    'C_score'
 
 ]
 
 cat_cols=[
+    'City',
+    'Province',
     'Property Type',
-    'Garage',
-    'Parking',
-    'Basement',
-    'Exterior',
-    'Fireplace',
     'Heating',
-    'Flooring',
-    'Roof',
-    'Waterfront',
-    'Sewer',
-    'Pool',
-    'Garden',
-    'Balcony'
+    'Roof'
+
 ]
 
-PRE_PROCESS = ColumnTransformer(
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+
+y_train_log = np.log1p(y_train)
+y_test_log = np.log1p(y_test)
+
+preproc = ColumnTransformer(
     transformers=[
-        ("Scaler", StandardScaler(), num_cols),
-        ("Encodeer", OneHotEncoder(handle_unknown='ignore'), cat_cols)
+         ("num", "passthrough", num_cols),
+        ("Encoder", TargetEncoder(), cat_cols)
     ]
 )
 
+hgb = HistGradientBoostingRegressor(
+    max_iter=100,
+    max_depth=10,
+    learning_rate=0.02,
+    min_samples_leaf=10,
+    l2_regularization=0.04,
+   
+    random_state=69
+)
 
-X_train, X_test, y_train, y_test=train_test_split(X,y, test_size=0.2, random_state=42, shuffle=True)
+my_model = Pipeline(steps=[
+    ("preproc", preproc),
+    ("model", hgb)
 
-
-lm = Pipeline(steps=[
-    ("preporc", PRE_PROCESS),
-    ("RFR", RandomForestRegressor(
-        n_estimators=50,
-        max_depth=15,
-        min_samples_leaf=10,
-        max_features="sqrt",
-        n_jobs=-1,
-        random_state=42
-    ))
 ])
 
-lm.fit(X_train, y_train)
+my_model.fit(X_train, y_train_log)
 
-preds = lm.predict(X_test)
-print(preds)
 
-print("MAE:", mean_absolute_error(y_test, preds))
-print("R²:", r2_score(y_test, preds))
+
+pred = my_model.predict(X_test)
+print(pred)
+
+
+print(mean_absolute_error(y_test_log,pred))
+print(r2_score(y_test_log, pred))
+
+
+test_data = pd.read_csv("test_house.csv")
+
+test_data = get_luxury_score(test_data)
+test_data = commodies_score(test_data)
+
+X_test = test_data[X.columns]
+
+pred_log = my_model.predict(X_test)
+pred_price = np.expm1(pred_log)
+
+print(pred_price)
